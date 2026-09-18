@@ -41,15 +41,17 @@ personal-ai-tools/
 
 ## 3. 工具规范 (Tool Specification)
 
-每一个工具都是一个**完全独立自治的微型工程**。每个工具目录内部必须严格包含以下结构（缺一不可）：
+每一个工具都是一个**完全独立自治的微型工程**。每个工具目录内部必须严格包含以下 7 个核心要素（缺一不可）：
 
 ```text
 tools/<category>/<tool-name>/
-├── README.md        # 工具说明文档（严格遵循指定 7 个二级标题）
-├── requirements.txt # 工具独立依赖列表（即使为空也必须存在）
-├── .env.example     # 环境变量配置模板
-├── main.py          # 工具主入口文件
-└── output/          # 该工具专属输出与产物目录（包含 .gitkeep）
+├── README.md           # 工具说明文档（严格遵循指定 7 个二级标题）
+├── requirements.txt    # 工具独立依赖列表（即使为空也必须存在）
+├── config.example.json # 配置文件参考模板（提交至 Git）
+├── main.py             # 工具主入口文件（必须集成首次运行向导）
+├── data/               # 存放缓存数据（包含 .gitkeep）
+├── logs/               # 存放运行日志（包含 .gitkeep）
+└── output/             # 存放输出结果文件（包含 .gitkeep）
 ```
 
 ---
@@ -68,10 +70,10 @@ tools/<category>/<tool-name>/
 - 参数输入说明（CLI 参数、输入文件等）
 
 ## 输出
-- 输出产物说明（保存在 output/ 目录中的文件）
+- 输出产物说明（data/ 缓存、logs/ 日志、output/ 结果）
 
 ## 环境配置
-- 说明依赖的 .env 变量及其用途
+- 说明 config.json 配置项、默认值与首次交互向导机制（严禁要求配置系统环境变量）
 
 ## 安装依赖
 - pip install -r requirements.txt
@@ -85,11 +87,21 @@ tools/<category>/<tool-name>/
 
 ---
 
-## 5. 环境变量规范
+## 5. 配置规范 (Configuration Specification)
 
-1. **零密钥提交**：严禁在代码、注释或 Git 历史中硬编码任何真实 API 密钥或敏感凭据。
-2. **模板对应**：所有通过 `os.getenv()` 或 `python-dotenv` 读取的环境变量，必须在 `.env.example` 中列出空值或占位符示例。
-3. **防御性校验**：在 `main.py` 启动时，如关键环境变量缺失，应抛出易读的错误提示，指引用户配置 `.env`。
+1. **统一使用 `config.json`**：
+   - 工具所有的配置项必须优先且统一通过本地 `config.json` 管理。
+   - **严禁要求用户配置系统环境变量**。
+2. **Git 版本控制规则**：
+   - 提交：`config.example.json`（提供空值或默认值样例）。
+   - 忽略：`config.json`（真实配置严禁提交至代码仓库）。
+3. **首次运行规则（必须严格遵守）**：
+   若 `config.json` 不存在，`main.py` 必须实现以下闭环流程：
+   1. **自动检测**：启动时检测目标目录下是否存在 `config.json`；
+   2. **创建向导**：不存在时自动开启终端交互式配置向导；
+   3. **询问用户**：依据 `config.example.json` 逐项询问用户所需配置；
+   4. **自动生成**：将用户输入写入格式化的 `config.json`；
+   5. **提示重启**：输出清晰提示告知用户配置文件已生成，指引重新运行 `python main.py` 并退出进程。
 
 ---
 
@@ -106,15 +118,18 @@ tools/<category>/<tool-name>/
 
 ---
 
-## 7. 输出规范
+## 7. 目录职责规范 (Data / Logs / Output)
 
-1. **产物隔离**：
-   - 工具运行产生的数据缓存、JSON 报表、下载文件或 Markdown 摘要必须统一保存在工具自身的 `output/` 目录下。
-   - 禁止向项目根目录或其他工具的目录中乱写临时文件。
-2. **忽略控制**：
-   - `output/` 下的动态生成内容已被全局 `.gitignore` 忽略，确保 Git 仓库洁净。
-3. **控制台输出规范**：
-   - 打印清晰的状态日志（推荐带上 `[INFO]`, `[WARN]`, `[ERROR]` 前缀），便于自动化脚本与用户观察执行进度。
+各工具目录下的子目录具有明确且单一的职责边界：
+
+1. **`data/`（存缓存数据）**：
+   - 存放持久化缓存、本地数据库文件（如 SQLite）、离线抓取的数据包等中间缓存。
+2. **`logs/`（存运行日志）**：
+   - 存放运行过程中的滚动日志文件（如 `app.log`），便于调试与回溯。
+3. **`output/`（存输出结果）**：
+   - 仅存放面向用户的最终产出物，如生成的 Markdown 研报、CSV 报表、导出的图片或汇总 JSON。
+4. **Git 忽略控制**：
+   - `data/*`, `logs/*`, `output/*` 内的动态生成内容已被根目录 `.gitignore` 自动忽略，通过 `.gitkeep` 保留骨架。
 
 ---
 
@@ -124,8 +139,10 @@ tools/<category>/<tool-name>/
 
 - [ ] 是否已从 `templates/tool-template` 派生？
 - [ ] 目录名是否符合小写 kebab-case 规范，且归入正确分类？
-- [ ] 是否完整保留了 `README.md`, `requirements.txt`, `.env.example`, `main.py`, `output/`？
+- [ ] 是否完整包含 7 要素：`README.md`, `requirements.txt`, `config.example.json`, `main.py`, `data/`, `logs/`, `output/`？
+- [ ] 是否严格采用 `config.json` 管理配置，且**未要求用户配置系统环境变量**？
+- [ ] `main.py` 是否实现了首次运行自动检测缺失、启动向导、生成 `config.json` 并提示重新运行？
 - [ ] `README.md` 是否包含了标准的 7 个二级标题？
+- [ ] 数据、日志与输出是否分别存入 `data/`, `logs/`, `output/`？
 - [ ] 代码中的文件路径读写是否全部基于相对路径？
-- [ ] 是否有任何敏感密钥泄漏风险？
 - [ ] 运行完毕后，是否已执行 `git diff` / `git status` 自检确认变更无误？

@@ -42,10 +42,12 @@ personal-ai-tools/
 ├── templates/               # 工具脚手架模板
 │   ├── tool-template/       # 标准 Python 工具模板
 │   │   ├── README.md        # 工具说明模板
-│   │   ├── .env.example     # 环境变量示例
+│   │   ├── config.example.json # 配置文件模板
 │   │   ├── requirements.txt # 依赖列表
-│   │   ├── main.py          # 入口执行文件
-│   │   └── output/          # 工具默认输出目录
+│   │   ├── main.py          # 入口执行文件与首次配置向导
+│   │   ├── data/            # 缓存数据存储目录
+│   │   ├── logs/            # 运行日志存储目录
+│   │   └── output/          # 输出结果产物目录
 │   └── README.md
 └── docs/                    # 仓库规范与系统开发指南
     ├── AI_GUIDE.md          # 专为各类 AI 编程助手编写的协作规范
@@ -54,21 +56,30 @@ personal-ai-tools/
 
 ---
 
-## 3. 新增工具流程
+## 3. 已收录工具矩阵 (Tool Catalog)
 
-新增一个工具非常简单，只需以下五步：
+| 领域分类 | 工具名称 | 目录路径 | 状态 | 核心功能简介 |
+| :--- | :--- | :--- | :--- | :--- |
+| 🎮 游戏娱乐 | **Steam 折扣挖掘器** | [steam-discount-finder](file:///tools/gaming/steam-discount-finder) | 🟢 生产可用 | 基于 $V=Q^2 \times H/P$ 模型量化性价比，自动同步/排除已拥有游戏并生成多维折扣日报 |
+
+---
+
+## 4. 新增工具流程
+
+新增一个工具非常简单，只需以下步骤：
 
 1. **复制模板**：复制 `templates/tool-template` 目录到 `tools/<分类>/<工具名称>`，例如 `tools/gaming/steam-discount-hunter`。
 2. **修改说明**：按照统一规范修改该工具目录下的 `README.md`，写明功能、输入输出及配置说明。
-3. **编写逻辑**：在 `main.py` 中实现核心业务逻辑（支持在当前目录下拆分模块）。
-4. **补充依赖**：在 `requirements.txt` 中登记本工具所需的第三方依赖库。
-5. **提交代码**：自测通过后，将新工具代码提交到 Git 仓库。
+3. **调整配置模板**：在 `config.example.json` 中定义该工具所需的配置字段（首次运行会自动触发交互式配置向导生成 `config.json`，**禁止要求用户配置系统环境变量**）。
+4. **编写逻辑**：在 `main.py` 中实现核心业务逻辑（缓存写至 `data/`，日志写至 `logs/`，导出结果写至 `output/`）。
+5. **补充依赖**：在 `requirements.txt` 中登记本工具所需的第三方依赖库。
+6. **提交代码**：自测通过后，将新工具代码与 `config.example.json` 提交到 Git（`config.json` 已被自动忽略）。
 
 > 💡 规范约定详见 [docs/CONVENTIONS.md](file:///docs/CONVENTIONS.md)。
 
 ---
 
-## 4. AI 助手使用说明
+## 5. AI 助手使用说明
 
 # For AI Assistants
 
@@ -77,10 +88,17 @@ personal-ai-tools/
 1. **阅读本 README**：理解项目愿景、模块化设计原则及通用流程。
 2. **浏览 tools 目录**：确定要新建或修改的工具归属的分类领域（`gaming`, `finance`, `study`, `productivity`, `life`）。
 3. **阅读对应工具 README**：在执行、测试或扩展任何工具之前，先阅读目标工具目录下的 `README.md` 了解其上下文。
-4. **查看 .env.example**：获知该工具依赖哪些环境变量，切勿硬编码任何密钥或私密信息。
-5. **安装 requirements.txt**：明确运行该工具所需的最小依赖集。
-6. **执行 main.py**：每个工具的统一执行入口均为 `main.py`。
-7. **路径规范（关键）**：
+4. **配置规范（强制）**：
+   - 优先且必须使用 `config.json`，**禁止要求用户配置系统环境变量**。
+   - 检查 `config.example.json` 获知所需字段。
+   - 若 `config.json` 不存在，必须具备首次运行自动检测、启动配置向导询问并生成 `config.json`，随后提示重新运行的机制。
+5. **目录职责规范**：
+   - `data/`：仅用于存放缓存数据。
+   - `logs/`：仅用于存放运行日志。
+   - `output/`：仅用于存放输出结果文件。
+6. **安装 requirements.txt**：明确运行该工具所需的最小依赖集。
+7. **执行 main.py**：每个工具的统一执行入口均为 `main.py`。
+8. **路径规范（关键）**：
    - **严禁依赖绝对路径**。
    - 所有文件读写、模块导入、脚本调用均必须采用**相对路径**（以工具所在目录或项目根目录为基准）。
    - 保证代码在不同开发者机器与不同操作系统环境（Windows / macOS / Linux）下即开即用。

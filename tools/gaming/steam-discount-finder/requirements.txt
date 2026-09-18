@@ -1,0 +1,2 @@
+# 本工具完全基于 Python 3.8+ 标准库构建（无需额外安装第三方库）
+# 依赖模块包括: urllib, json, re, argparse, logging, pathlib, concurrent.futures

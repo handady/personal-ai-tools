@@ -19,10 +19,18 @@
 ## 工具设计约束
 
 1. **完全自包含（Self-Contained）**：
-   每个工具必须拥有自己独立的运行环境定义（`requirements.txt`）、配置模版（`.env.example`）、入口文件（`main.py`）以及专属输出目录（`output/`）。
+   每个工具必须拥有自己独立的运行环境定义（`requirements.txt`）、配置模版（`config.example.json`）、入口文件（`main.py`）、缓存目录（`data/`）、日志目录（`logs/`）以及专属输出目录（`output/`）。
 2. **零耦合**：
    禁止工具之间直接通过相对路径相互 import 耦合逻辑；如需共享公共能力，未来应通过顶层 `packages/` 或作为独立库引入。
 3. **输出隔离**：
    工具生成的所有临时文件、日志、分析报告必须输出至该工具目录下的 `output/` 文件夹内，杜绝随意写入根目录或污染工作区。
 4. **统一命名**：
-   工具目录名采用短横线小写形式（kebab-case），如 `steam-discount-hunter`, `stock-analyzer`。
+   工具目录名采用短横线小写形式（kebab-case），如 `steam-discount-finder`, `stock-analyzer`。
+
+---
+
+## 现已收录工具列表
+
+| 工具名称 | 领域分类 | 目录路径 | 状态 | 核心简介 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Steam 折扣挖掘器** | `gaming` | [steam-discount-finder](file:///tools/gaming/steam-discount-finder) | 🟢 正常维护 | 量化游戏性价比 ($V=Q^2 \times H/P$)，自动排除已拥有游戏并生成每日折扣报告 |

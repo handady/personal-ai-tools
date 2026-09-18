@@ -30,6 +30,6 @@ cp -r templates/tool-template tools/gaming/steam-discount-hunter
 
 复制完成后：
 1. 编辑目标目录下的 `README.md`，补全工具名称、功能、输入输出及配置。
-2. 依据需求修改 `.env.example`，并创建本地 `.env`。
+2. 依据需求调整 `config.example.json` 中的字段项（首次运行 `python main.py` 会自动启动配置向导生成 `config.json`）。
 3. 在 `requirements.txt` 中添加依赖包。
 4. 编写 `main.py` 完成工具开发。

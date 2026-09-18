@@ -1,0 +1,7 @@
+{
+  "_comment": "Steam Web API 配置。steam_api_key 在 https://steamcommunity.com/dev/apikey 领取；steam_id 是 17 位数字（或填个人主页 URL / 自定义昵称至 vanity）。如不使用 API 可留空，使用 data/owned.txt 手动清单。",
+  "steam_api_key": "",
+  "steam_id": "",
+  "vanity": "",
+  "owned_extra": []
+}
