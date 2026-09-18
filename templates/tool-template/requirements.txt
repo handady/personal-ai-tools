@@ -1,0 +1,1 @@
+# Tool dependencies (e.g., requests, python-dotenv)
