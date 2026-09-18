@@ -26,9 +26,9 @@
 personal-ai-tools/
 ├── README.md                # 项目主说明文档与总索引
 ├── .gitignore               # 统一 Git 忽略配置（包含环境、密钥与输出产物过滤）
-├── dashboard/               # [未来规划] 基于 Vue 3 的统一可视化管理看板
-│   ├── README.md
-│   └── placeholder.md
+├── dashboard/               # 基于 Vue 3 的现代化统一可视化管理看板
+│   ├── README.md            # 看板开发与运行指南
+│   └── src/                 # 前端源码（含工具清单扫描器与产物预览）
 ├── tools/                   # 核心工具集目录（按应用领域分类）
 │   ├── gaming/              # 游戏娱乐相关工具（如 Steam 折扣监控、游戏数据分析）
 │   ├── finance/             # 金融理财工具（如 股票分析、资产看板、财报提取）
