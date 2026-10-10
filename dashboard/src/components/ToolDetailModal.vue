@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { marked } from 'marked';
 import SteamDealsPreview from './SteamDealsPreview.vue';
+import GrayscaleGuardPreview from './GrayscaleGuardPreview.vue';
 
 const props = defineProps<{
   tool: any;
@@ -10,7 +11,16 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'run', tool: any, action?: string): void;
 }>();
+
+const handleRun = () => {
+  if (!props.tool?.isConfigured) {
+    alert(`[提示] 工具「${props.tool?.name}」尚未生成 config.json，请先根据说明完成首次配置，或在终端中运行一次以触发配置向导。`);
+    return;
+  }
+  emit('run', props.tool);
+};
 
 const activeTab = ref<'readme' | 'report' | 'config'>('readme');
 const copied = ref(false);
@@ -59,9 +69,14 @@ const copyCommand = () => {
           <span class="cli-prompt">$</span>
           <code>{{ tool.cliCommand }}</code>
         </div>
-        <button class="copy-btn" @click="copyCommand">
-          {{ copied ? '✓ 已复制' : '复制命令' }}
-        </button>
+        <div class="cli-actions">
+          <button class="run-btn" @click="handleRun">
+            ▶ 立即运行
+          </button>
+          <button class="copy-btn" @click="copyCommand">
+            {{ copied ? '✓ 已复制' : '复制命令' }}
+          </button>
+        </div>
       </div>
 
       <!-- Tab Switcher -->
@@ -98,6 +113,11 @@ const copyCommand = () => {
         <!-- Tab 2: Live Report -->
         <div v-else-if="activeTab === 'report'" class="report-body">
           <SteamDealsPreview v-if="tool.latestDeals" :dealsData="tool.latestDeals" />
+          <GrayscaleGuardPreview 
+            v-else-if="tool.guardStatus" 
+            :guardData="tool.guardStatus" 
+            @run="(action) => emit('run', tool, action)" 
+          />
           <div v-else class="generic-outputs">
             <h4 class="output-title">📁 本地产物文件 (output/)</h4>
             <ul class="file-list">
@@ -277,6 +297,32 @@ const copyCommand = () => {
 }
 .cli-text code {
   color: var(--text-main);
+}
+
+.cli-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.run-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+  transition: opacity 0.2s, transform 0.1s;
+}
+.run-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
 }
 
 .copy-btn {

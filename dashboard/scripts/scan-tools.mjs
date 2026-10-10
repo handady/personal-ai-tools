@@ -83,6 +83,7 @@ function scan() {
       // Check outputs
       let outputFiles = [];
       let latestDeals = null;
+      let guardStatus = null;
 
       if (fs.existsSync(outputPath)) {
         outputFiles = fs.readdirSync(outputPath).filter(f => f !== '.gitkeep');
@@ -93,6 +94,15 @@ function scan() {
             latestDeals = JSON.parse(fs.readFileSync(latestJsonPath, 'utf-8'));
           } catch (e) {
             console.warn(`[Scanner] Error reading deals-latest.json:`, e.message);
+          }
+        }
+
+        const guardStatusPath = path.join(outputPath, 'guard-status.json');
+        if (fs.existsSync(guardStatusPath)) {
+          try {
+            guardStatus = JSON.parse(fs.readFileSync(guardStatusPath, 'utf-8'));
+          } catch (e) {
+            console.warn(`[Scanner] Error reading guard-status.json:`, e.message);
           }
         }
       }
@@ -113,6 +123,7 @@ function scan() {
         outputFiles,
         hasOutputs: outputFiles.length > 0,
         latestDeals,
+        guardStatus,
         updatedAt: new Date().toISOString()
       });
     }

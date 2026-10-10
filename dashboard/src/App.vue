@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import rawManifest from './data/tools-manifest.json';
 import ToolCard from './components/ToolCard.vue';
 import ToolDetailModal from './components/ToolDetailModal.vue';
+import ExecutionConsoleModal from './components/ExecutionConsoleModal.vue';
 
 // Theme Management (默认采用清新的樱花粉亮色模式)
 const isDarkMode = ref(false);
@@ -31,6 +32,21 @@ const searchQuery = ref<string>('');
 // Modal State
 const activeModalTool = ref<any>(null);
 const showModal = ref(false);
+
+// Console Execution State
+const showConsole = ref(false);
+const consoleTool = ref<any>(null);
+const consoleAction = ref<string | undefined>(undefined);
+
+const handleRunTool = (tool: any, action?: string) => {
+  consoleTool.value = tool;
+  consoleAction.value = action;
+  showConsole.value = true;
+};
+
+const handleRunCompleted = () => {
+  handleManualRescan();
+};
 
 const filteredTools = computed(() => {
   let list = manifest.value.tools || [];
@@ -209,6 +225,7 @@ const formatTime = (iso: string) => {
             :tool="tool" 
             @select="openToolModal"
             @view-report="openToolReport"
+            @run="handleRunTool"
           />
         </div>
 
@@ -233,6 +250,16 @@ const formatTime = (iso: string) => {
       :tool="activeModalTool" 
       :show="showModal" 
       @close="showModal = false" 
+      @run="handleRunTool"
+    />
+
+    <!-- Realtime Execution Console Modal -->
+    <ExecutionConsoleModal
+      :show="showConsole"
+      :tool="consoleTool"
+      :action="consoleAction"
+      @close="showConsole = false"
+      @completed="handleRunCompleted"
     />
   </div>
 </template>

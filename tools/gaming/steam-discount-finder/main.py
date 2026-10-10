@@ -246,7 +246,8 @@ def save_json(path: Path, obj: Any) -> None:
 # ==================== 5. Steam 折扣检索与 HTML 解析 ====================
 RE_TITLE = re.compile(r'<span class="title">([^<]+)</span>')
 RE_FINAL = re.compile(r'data-price-final="(\d+)"')
-RE_PCT = re.compile(r'<div class="discount_pct">-?(\d+)%</div>')
+RE_PCT = re.compile(r'class="discount_pct"[^>]*>-?(\d+)%</div>')
+RE_DISCOUNT_ATTR = re.compile(r'data-discount="(\d+)"')
 RE_TIP = re.compile(r'data-tooltip-html="([^"]*)"')
 RE_RELEASE = re.compile(r'<div class="search_released[^"]*">\s*([^<]+?)\s*</div>', re.S)
 
@@ -267,7 +268,7 @@ def parse_results_html(page: str) -> List[Dict[str, Any]]:
         final_price = int(m_final.group(1)) / 100.0
 
         m_title = RE_TITLE.search(row)
-        m_pct = RE_PCT.search(row)
+        m_pct = RE_PCT.search(row) or RE_DISCOUNT_ATTR.search(row)
         m_tip = RE_TIP.search(row)
         m_rel = RE_RELEASE.search(row)
 
@@ -301,6 +302,7 @@ def fetch_search_page(cfg: Dict[str, Any], sort: str, start: int) -> List[Dict[s
         "count": cfg["page_size"],
         "dynamic_data": "",
         "sort_by": sort,
+        "specials": "1",
         "filter": "onsale",
         "infinite": "1",
         "cc": "cn",

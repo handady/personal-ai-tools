@@ -61,6 +61,7 @@ personal-ai-tools/
 | 领域分类 | 工具名称 | 目录路径 | 状态 | 核心功能简介 |
 | :--- | :--- | :--- | :--- | :--- |
 | 🎮 游戏娱乐 | **Steam 折扣挖掘器** | [steam-discount-finder](file:///tools/gaming/steam-discount-finder) | 🟢 生产可用 | 基于 $V=Q^2 \times H/P$ 模型量化性价比，自动同步/排除已拥有游戏并生成多维折扣日报 |
+| ☕ 生活日常 | **灰度守护** | [grayscale-guard](file:///tools/life/grayscale-guard) | 🟢 生产可用 | 基于 Windows 颜色滤镜与计划任务自动切换黑白灰度，零后台常驻掐断深夜熬夜心流冲动 |
 
 ---
 

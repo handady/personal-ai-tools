@@ -8,6 +8,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', tool: any): void;
   (e: 'view-report', tool: any): void;
+  (e: 'run', tool: any): void;
 }>();
 
 const copied = ref(false);
@@ -19,6 +20,15 @@ const copyCommand = (e: Event) => {
   setTimeout(() => {
     copied.value = false;
   }, 2000);
+};
+
+const handleRun = (e: Event) => {
+  e.stopPropagation();
+  if (!props.tool.isConfigured) {
+    alert(`[提示] 工具「${props.tool.name}」尚未生成 config.json，请先根据说明完成首次配置，或在终端中运行一次以触发配置向导。`);
+    return;
+  }
+  emit('run', props.tool);
 };
 </script>
 
@@ -72,6 +82,13 @@ const copyCommand = (e: Event) => {
       </div>
 
       <div class="action-buttons">
+        <button 
+          class="btn-run" 
+          :title="tool.isConfigured ? '直接在网页中运行此工具' : '需要先完成配置'"
+          @click.stop="handleRun"
+        >
+          ▶ 运行
+        </button>
         <button 
           v-if="tool.hasOutputs" 
           class="btn-subtle" 
@@ -306,6 +323,29 @@ const copyCommand = (e: Event) => {
   background: var(--bg-surface-hover);
   color: var(--text-main);
   border-color: var(--border-hover);
+}
+
+.btn-run {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-run:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(16, 185, 129, 0.4);
 }
 
 .btn-primary {

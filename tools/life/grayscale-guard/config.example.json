@@ -1,0 +1,7 @@
+{
+  "_comment": "灰度守护配置。nightStart=开始变灰时间，morningEnd=恢复彩色时间(HH:MM 24小时制)。recheckMinutes=定时复查间隔(分钟)。",
+  "nightStart": "23:00",
+  "morningEnd": "07:30",
+  "recheckMinutes": 10,
+  "enabled": true
+}
