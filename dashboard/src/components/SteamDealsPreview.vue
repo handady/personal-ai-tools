@@ -1,21 +1,29 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed } from "vue";
 
 const props = defineProps<{
   dealsData: any;
 }>();
 
-const activeTab = ref<'all' | 'featured'>('all'); // 默认展示全量大榜单，避免遗漏
-const viewLayout = ref<'grid' | 'list'>('grid'); // 'grid' 3列卡片, 'list' 极速紧凑清单
-const searchQuery = ref('');
-const sortBy = ref<'value' | 'discount' | 'price_asc' | 'rate' | 'hours'>('value');
+const activeTab = ref<"all" | "masterpiece" | "featured">("all"); // 默认展示全量大榜单，避免遗漏
+const viewLayout = ref<"grid" | "list">("grid"); // 'grid' 4列卡片, 'list' 极速紧凑清单
+const searchQuery = ref("");
+const onlyHistLow = ref(false); // 快捷过滤：仅看平/破史低
+const sortBy = ref<"value" | "discount" | "price_asc" | "rate" | "hours">(
+  "value",
+);
 
 const scrollToTop = () => {
-  const modalBody = document.querySelector('.modal-body');
+  const modalBody = document.querySelector(".modal-body");
   if (modalBody) {
-    modalBody.scrollTo({ top: 0, behavior: 'smooth' });
+    modalBody.scrollTo({ top: 0, behavior: "smooth" });
   }
 };
+
+const topMasterpieces = computed(() => {
+  if (!props.dealsData) return [];
+  return props.dealsData.top_masterpieces || [];
+});
 
 const topValueGames = computed(() => {
   if (!props.dealsData) return [];
@@ -30,11 +38,17 @@ const topDiscountGames = computed(() => {
 // 获取包含全部进榜游戏的全量清单
 const allGames = computed(() => {
   if (!props.dealsData) return [];
-  if (Array.isArray(props.dealsData.all_ranked) && props.dealsData.all_ranked.length) {
+  if (
+    Array.isArray(props.dealsData.all_ranked) &&
+    props.dealsData.all_ranked.length
+  ) {
     return props.dealsData.all_ranked;
   }
   // 兜底合并
   const map = new Map();
+  (props.dealsData.top_masterpieces || []).forEach((g: any) =>
+    map.set(g.appid, g),
+  );
   (props.dealsData.top_value || []).forEach((g: any) => map.set(g.appid, g));
   (props.dealsData.top_discount || []).forEach((g: any) => map.set(g.appid, g));
   return Array.from(map.values());
@@ -44,29 +58,37 @@ const allGames = computed(() => {
 const filteredAllGames = computed(() => {
   let list = [...allGames.value];
 
+  if (onlyHistLow.value) {
+    list = list.filter(
+      (g: any) => g.hist_status === "NEW_LOW" || g.hist_status === "TIED_LOW",
+    );
+  }
+
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.trim().toLowerCase();
     list = list.filter((g: any) => {
-      const nameMatch = (g.name || '').toLowerCase().includes(q);
-      const genresMatch = (g.info?.genres || []).some((genre: string) => genre.toLowerCase().includes(q));
+      const nameMatch = (g.name || "").toLowerCase().includes(q);
+      const genresMatch = (g.info?.genres || []).some((genre: string) =>
+        genre.toLowerCase().includes(q),
+      );
       return nameMatch || genresMatch;
     });
   }
 
   switch (sortBy.value) {
-    case 'discount':
+    case "discount":
       list.sort((a, b) => b.discount - a.discount);
       break;
-    case 'price_asc':
+    case "price_asc":
       list.sort((a, b) => a.final - b.final);
       break;
-    case 'rate':
+    case "rate":
       list.sort((a, b) => (b.raw_rate || 0) - (a.raw_rate || 0));
       break;
-    case 'hours':
+    case "hours":
       list.sort((a, b) => (b.hours || 0) - (a.hours || 0));
       break;
-    case 'value':
+    case "value":
     default:
       list.sort((a, b) => (b.value || 0) - (a.value || 0));
       break;
@@ -83,49 +105,60 @@ const filteredAllGames = computed(() => {
       <div>
         <h4 class="deals-title">🎮 实时抓取产物 · Steam 每日高性价比折扣榜</h4>
         <p class="deals-subtitle">
-          更新时间: {{ dealsData.updated_at || '最新' }} · 
-          共挖掘进入精选池 {{ allGames.length }} 款 · 
-          已自动排除个人库存 {{ dealsData.excluded_owned_count || 0 }} 款
+          更新时间: {{ dealsData.updated_at || "最新" }} · 共挖掘进入精选池
+          {{ allGames.length }} 款 · 已自动排除个人库存
+          {{ dealsData.excluded_owned_count || 0 }} 款
         </p>
       </div>
 
       <div class="header-tags-cluster">
-        <span class="bubble-tag">扫描折扣位 {{ dealsData.scanned_deals_count || 1183 }}</span>
-        <span class="bubble-tag highlight">进榜共 {{ allGames.length }} 款</span>
+        <span class="bubble-tag"
+          >扫描折扣位 {{ dealsData.scanned_deals_count || 1183 }}</span
+        >
+        <span class="bubble-tag highlight"
+          >进榜共 {{ allGames.length }} 款</span
+        >
       </div>
     </div>
 
     <!-- 视图切换胶囊栏 -->
     <div class="view-switch-bar">
       <div class="tab-pills">
-        <button 
-          class="switch-pill" 
+        <button
+          class="switch-pill"
           :class="{ active: activeTab === 'all' }"
           @click="activeTab = 'all'"
         >
-          📋 全量入选清单 (共 {{ allGames.length }} 款)
+          📋 全量清单 (共 {{ allGames.length }} 款)
         </button>
-        <button 
-          class="switch-pill" 
+        <button
+          class="switch-pill"
+          :class="{ active: activeTab === 'masterpiece' }"
+          @click="activeTab = 'masterpiece'"
+        >
+          🏆 殿堂神作·史低榜 ({{ topMasterpieces.length }} 款)
+        </button>
+        <button
+          class="switch-pill"
           :class="{ active: activeTab === 'featured' }"
           @click="activeTab = 'featured'"
         >
-          🌟 精选焦点卡片 (TOP 榜单)
+          🌟 焦点特选 TOP
         </button>
       </div>
 
       <!-- 右侧视图模式切换 (仅在全量列表下生效) -->
       <div v-if="activeTab === 'all'" class="layout-toggle-pills">
-        <button 
-          class="layout-pill" 
+        <button
+          class="layout-pill"
           :class="{ active: viewLayout === 'grid' }"
           @click="viewLayout = 'grid'"
           title="一行四列卡片视图"
         >
           🎴 四列卡片
         </button>
-        <button 
-          class="layout-pill" 
+        <button
+          class="layout-pill"
           :class="{ active: viewLayout === 'list' }"
           @click="viewLayout = 'list'"
           title="紧凑单行极速清单（一屏看全）"
@@ -141,47 +174,61 @@ const filteredAllGames = computed(() => {
       <div class="toolbar-box">
         <div class="search-field">
           <span class="search-lens">🔍</span>
-          <input 
-            v-model="searchQuery" 
-            type="text" 
-            :placeholder="`搜索全部 ${allGames.length} 款游戏名称或标签（如 动作/独立/模拟）...`" 
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="`搜索全部 ${allGames.length} 款游戏名称或标签（如 动作/独立/模拟）...`"
             class="all-search-input"
           />
-          <button v-if="searchQuery" class="mini-clear" @click="searchQuery = ''">✕</button>
+          <button
+            v-if="searchQuery"
+            class="mini-clear"
+            @click="searchQuery = ''"
+          >
+            ✕
+          </button>
         </div>
 
         <div class="sort-selector-group">
-          <span class="sort-label">排序方式:</span>
-          <button 
-            class="sort-pill" 
+          <span class="sort-label">排序与过滤:</span>
+          <button
+            class="sort-pill filter-toggle"
+            :class="{ active: onlyHistLow }"
+            @click="onlyHistLow = !onlyHistLow"
+            title="只看追平或破全网历史最低的游戏"
+          >
+            🔥 仅看平/破史低
+          </button>
+          <button
+            class="sort-pill"
             :class="{ active: sortBy === 'value' }"
             @click="sortBy = 'value'"
           >
             性价比最高
           </button>
-          <button 
-            class="sort-pill" 
+          <button
+            class="sort-pill"
             :class="{ active: sortBy === 'discount' }"
             @click="sortBy = 'discount'"
           >
             折扣力度最大
           </button>
-          <button 
-            class="sort-pill" 
+          <button
+            class="sort-pill"
             :class="{ active: sortBy === 'price_asc' }"
             @click="sortBy = 'price_asc'"
           >
             现价最低
           </button>
-          <button 
-            class="sort-pill" 
+          <button
+            class="sort-pill"
             :class="{ active: sortBy === 'rate' }"
             @click="sortBy = 'rate'"
           >
             好评率最高
           </button>
-          <button 
-            class="sort-pill" 
+          <button
+            class="sort-pill"
             :class="{ active: sortBy === 'hours' }"
             @click="sortBy = 'hours'"
           >
@@ -191,15 +238,18 @@ const filteredAllGames = computed(() => {
       </div>
 
       <!-- 模式 A: 一行四列紧凑卡片 -->
-      <div v-if="viewLayout === 'grid' && filteredAllGames.length" class="game-cards-grid four-cols">
-        <div 
-          v-for="(game, idx) in filteredAllGames" 
+      <div
+        v-if="viewLayout === 'grid' && filteredAllGames.length"
+        class="game-cards-grid four-cols"
+      >
+        <div
+          v-for="(game, idx) in filteredAllGames"
           :key="game.appid"
           class="game-card compact-card"
         >
           <div class="game-cover-wrap compact-cover">
-            <img 
-              :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`" 
+            <img
+              :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`"
               class="game-cover"
               loading="lazy"
               alt=""
@@ -211,9 +261,9 @@ const filteredAllGames = computed(() => {
 
           <div class="game-info compact-info">
             <div class="game-name-row">
-              <a 
-                :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`" 
-                target="_blank" 
+              <a
+                :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`"
+                target="_blank"
                 class="game-name"
                 :title="game.name"
               >
@@ -223,9 +273,9 @@ const filteredAllGames = computed(() => {
 
             <!-- 类型标签预览 -->
             <div v-if="game.info && game.info.genres" class="genre-tags-row">
-              <span 
-                v-for="genre in game.info.genres.slice(0, 2)" 
-                :key="genre" 
+              <span
+                v-for="genre in game.info.genres.slice(0, 2)"
+                :key="genre"
                 class="genre-chip"
               >
                 {{ genre }}
@@ -240,8 +290,12 @@ const filteredAllGames = computed(() => {
 
             <div class="metrics-row compact-metrics">
               <span class="metric-item">
-                <span class="m-val highlight">{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span>
-                <span class="m-sub" v-if="game.reviews">({{ game.reviews }}篇)</span>
+                <span class="m-val highlight"
+                  >{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span
+                >
+                <span class="m-sub" v-if="game.reviews"
+                  >({{ game.reviews }}篇)</span
+                >
               </span>
               <span class="metric-item">
                 <span class="m-val">{{ game.hours }}h</span>
@@ -252,38 +306,61 @@ const filteredAllGames = computed(() => {
               <div class="value-score">
                 V指数: <span class="score-number">{{ game.value }}</span>
               </div>
-              <span class="low-price-tag">🔥 进榜</span>
+              <span
+                v-if="game.hist_status === 'NEW_LOW'"
+                class="low-price-tag new-low"
+                >🔥 破史低</span
+              >
+              <span
+                v-else-if="game.hist_status === 'TIED_LOW'"
+                class="low-price-tag tied-low"
+                >⚖️ 平史低</span
+              >
+              <span
+                v-else-if="game.is_masterpiece"
+                class="low-price-tag masterpiece"
+                >🏆 殿堂</span
+              >
+              <span v-else class="low-price-tag">🔥 进榜</span>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 模式 B: 极速单行手帐清单 (一屏能看十多款，彻底告别长滚动) -->
-      <div v-else-if="viewLayout === 'list' && filteredAllGames.length" class="compact-list-view">
-        <div 
-          v-for="(game, idx) in filteredAllGames" 
+      <div
+        v-else-if="viewLayout === 'list' && filteredAllGames.length"
+        class="compact-list-view"
+      >
+        <div
+          v-for="(game, idx) in filteredAllGames"
           :key="game.appid"
           class="compact-list-row"
         >
           <span class="row-rank">#{{ Number(idx) + 1 }}</span>
-          <img 
-            :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`" 
+          <img
+            :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`"
             class="row-thumb"
             loading="lazy"
             alt=""
             @error="($event.target as HTMLElement).style.display = 'none'"
           />
           <div class="row-main">
-            <a 
-              :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`" 
-              target="_blank" 
+            <a
+              :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`"
+              target="_blank"
               class="row-name"
               :title="game.name"
             >
               {{ game.name }}
             </a>
             <div class="row-genres">
-              <span v-for="g in (game.info?.genres || []).slice(0, 2)" :key="g" class="row-genre-badge">{{ g }}</span>
+              <span
+                v-for="g in (game.info?.genres || []).slice(0, 2)"
+                :key="g"
+                class="row-genre-badge"
+                >{{ g }}</span
+              >
             </div>
           </div>
 
@@ -294,7 +371,9 @@ const filteredAllGames = computed(() => {
               <span class="row-original">¥{{ game.original }}</span>
             </div>
             <span class="row-cph">¥{{ game.cost_per_hour }}/h</span>
-            <span class="row-rate">{{ Math.round((game.raw_rate || 0) * 100) }}%</span>
+            <span class="row-rate"
+              >{{ Math.round((game.raw_rate || 0) * 100) }}%</span
+            >
             <span class="row-hours">{{ game.hours }}h</span>
             <div class="row-value-badge">
               <span class="v-sub">V</span>
@@ -308,7 +387,121 @@ const filteredAllGames = computed(() => {
       <div v-else class="empty-filter-state">
         <span class="empty-icon">🎮</span>
         <p>未找到符合搜索条件的游戏，试试其他关键词或重置筛选</p>
-        <button class="reset-filter-btn" @click="searchQuery = ''; sortBy = 'value'">重置筛选</button>
+        <button
+          class="reset-filter-btn"
+          @click="
+            searchQuery = '';
+            onlyHistLow = false;
+            sortBy = 'value';
+          "
+        >
+          重置筛选
+        </button>
+      </div>
+    </div>
+
+    <!-- 视图 2: 殿堂神作·史低特权专区 -->
+    <div v-else-if="activeTab === 'masterpiece'" class="masterpiece-section">
+      <div class="mp-banner-card">
+        <div class="mp-banner-header">
+          <span class="mp-trophy-icon">🏆</span>
+          <div>
+            <h5 class="mp-banner-title">
+              殿堂神作 · 破格特权榜 (共 {{ topMasterpieces.length }} 款)
+            </h5>
+            <p class="mp-banner-desc">
+              突破常规 35% 折扣与价格限制，专收好评率 ≥ 88% 的口碑神作与 3A
+              巨作。当前价格只要平/破历史最低即可破格收录！
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="topMasterpieces.length" class="game-cards-grid four-cols">
+        <div
+          v-for="(game, idx) in topMasterpieces"
+          :key="game.appid"
+          class="game-card compact-card"
+        >
+          <div class="game-cover-wrap compact-cover">
+            <img
+              :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`"
+              class="game-cover"
+              loading="lazy"
+              alt=""
+              @error="($event.target as HTMLElement).style.display = 'none'"
+            />
+            <span class="game-rank-num">#{{ Number(idx) + 1 }}</span>
+            <span class="discount-pill">-{{ game.discount }}%</span>
+          </div>
+
+          <div class="game-info compact-info">
+            <div class="game-name-row">
+              <a
+                :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`"
+                target="_blank"
+                class="game-name"
+                :title="game.name"
+              >
+                {{ game.name }}
+              </a>
+            </div>
+
+            <div v-if="game.info && game.info.genres" class="genre-tags-row">
+              <span
+                v-for="genre in game.info.genres.slice(0, 2)"
+                :key="genre"
+                class="genre-chip"
+                >{{ genre }}</span
+              >
+            </div>
+
+            <div class="price-row compact-price">
+              <span class="current-price">¥{{ Math.round(game.final) }}</span>
+              <span class="original-price">¥{{ game.original }}</span>
+              <span
+                v-if="game.hist_low_price"
+                class="hist-low-badge"
+                :title="'全网历史最低价: ¥' + game.hist_low_price"
+                >史低¥{{ Math.round(game.hist_low_price) }}</span
+              >
+            </div>
+
+            <div class="metrics-row compact-metrics">
+              <span class="metric-item">
+                <span class="m-val highlight"
+                  >{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span
+                >
+                <span class="m-sub" v-if="game.reviews"
+                  >({{ game.reviews }}篇)</span
+                >
+              </span>
+              <span class="metric-item">
+                <span class="m-val">{{ game.hours }}h</span>
+              </span>
+            </div>
+
+            <div class="card-footer-row compact-footer">
+              <div class="value-score">
+                V指数: <span class="score-number">{{ game.value }}</span>
+              </div>
+              <span
+                v-if="game.hist_status === 'NEW_LOW'"
+                class="low-price-tag new-low"
+                >🔥 破史低</span
+              >
+              <span
+                v-else-if="game.hist_status === 'TIED_LOW'"
+                class="low-price-tag tied-low"
+                >⚖️ 平史低</span
+              >
+              <span v-else class="low-price-tag masterpiece">🏆 殿堂</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="empty-filter-state">
+        <p>当前暂无平/破史低或高折扣神作</p>
       </div>
     </div>
 
@@ -318,18 +511,21 @@ const filteredAllGames = computed(() => {
       <div class="rank-section">
         <div class="section-title-wrap">
           <span class="rank-badge gold">TOP 1</span>
-          <h5 class="section-title">性价比之王 (按 V 指数降序，闭眼买区 · 前 {{ topValueGames.length }} 款)</h5>
+          <h5 class="section-title">
+            性价比之王 (按 V 指数降序，闭眼买区 · 前
+            {{ topValueGames.length }} 款)
+          </h5>
         </div>
 
         <div class="game-cards-grid four-cols">
-          <div 
-            v-for="(game, idx) in topValueGames" 
+          <div
+            v-for="(game, idx) in topValueGames"
             :key="game.appid"
             class="game-card compact-card"
           >
             <div class="game-cover-wrap compact-cover">
-              <img 
-                :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`" 
+              <img
+                :src="`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.appid}/capsule_sm_120.jpg`"
                 class="game-cover"
                 loading="lazy"
                 alt=""
@@ -341,9 +537,9 @@ const filteredAllGames = computed(() => {
 
             <div class="game-info compact-info">
               <div class="game-name-row">
-                <a 
-                  :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`" 
-                  target="_blank" 
+                <a
+                  :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`"
+                  target="_blank"
                   class="game-name"
                   :title="game.name"
                 >
@@ -359,8 +555,12 @@ const filteredAllGames = computed(() => {
 
               <div class="metrics-row compact-metrics">
                 <span class="metric-item">
-                  <span class="m-val highlight">{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span>
-                  <span class="m-sub" v-if="game.reviews">({{ game.reviews }}篇)</span>
+                  <span class="m-val highlight"
+                    >{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span
+                  >
+                  <span class="m-sub" v-if="game.reviews"
+                    >({{ game.reviews }}篇)</span
+                  >
                 </span>
                 <span class="metric-item">
                   <span class="m-val">{{ game.hours }}h</span>
@@ -379,23 +579,29 @@ const filteredAllGames = computed(() => {
       </div>
 
       <!-- 榜二: 深度折扣 -->
-      <div v-if="topDiscountGames.length" class="rank-section" style="margin-top: 24px;">
+      <div
+        v-if="topDiscountGames.length"
+        class="rank-section"
+        style="margin-top: 24px"
+      >
         <div class="section-title-wrap">
           <span class="rank-badge silver">TOP 2</span>
-          <h5 class="section-title">深度折扣精选 (手慢无大作 · 前 {{ topDiscountGames.length }} 款)</h5>
+          <h5 class="section-title">
+            深度折扣精选 (手慢无大作 · 前 {{ topDiscountGames.length }} 款)
+          </h5>
         </div>
 
         <div class="mini-game-list">
-          <div 
-            v-for="game in topDiscountGames" 
+          <div
+            v-for="game in topDiscountGames"
             :key="game.appid"
             class="mini-game-row"
           >
             <div class="mini-left">
               <span class="discount-pill mini">-{{ game.discount }}%</span>
-              <a 
-                :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`" 
-                target="_blank" 
+              <a
+                :href="`https://store.steampowered.com/app/${game.appid}/?cc=cn`"
+                target="_blank"
                 class="game-name mini"
               >
                 {{ game.name }}
@@ -403,8 +609,12 @@ const filteredAllGames = computed(() => {
             </div>
             <div class="mini-right">
               <span class="original-price">¥{{ game.original }}</span>
-              <span class="current-price mini">¥{{ Math.round(game.final) }}</span>
-              <span class="m-val highlight" style="font-size: 12px;">{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span>
+              <span class="current-price mini"
+                >¥{{ Math.round(game.final) }}</span
+              >
+              <span class="m-val highlight" style="font-size: 12px"
+                >{{ Math.round((game.raw_rate || 0) * 100) }}% 好评</span
+              >
             </div>
           </div>
         </div>
@@ -707,7 +917,10 @@ const filteredAllGames = computed(() => {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.25s ease;
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.2s ease,
+    box-shadow 0.25s ease;
 }
 .game-card:hover {
   transform: translateY(-3px);
@@ -803,6 +1016,7 @@ const filteredAllGames = computed(() => {
   text-decoration: none;
   display: -webkit-box;
   -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   transition: color 0.2s;
@@ -894,6 +1108,76 @@ const filteredAllGames = computed(() => {
   white-space: nowrap;
   flex-shrink: 0;
 }
+.low-price-tag.new-low {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  font-weight: 750;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.low-price-tag.tied-low {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+  font-weight: 750;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.low-price-tag.masterpiece {
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.15),
+    rgba(239, 68, 68, 0.15)
+  );
+  color: #b45309;
+  font-weight: 750;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.hist-low-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg-card-header);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  border: 1px dashed var(--border-color);
+  white-space: nowrap;
+}
+
+.filter-toggle.active {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  color: #fff !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+}
+
+/* 殿堂神作 横幅卡片 */
+.mp-banner-card {
+  background: linear-gradient(
+    135deg,
+    rgba(254, 243, 199, 0.45) 0%,
+    rgba(254, 226, 226, 0.45) 100%
+  );
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.mp-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.mp-trophy-icon {
+  font-size: 28px;
+}
+.mp-banner-title {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+.mp-banner-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 /* 布局模式切换胶囊 */
 .layout-toggle-pills {
@@ -942,7 +1226,9 @@ const filteredAllGames = computed(() => {
   padding: 6px 14px;
   gap: 12px;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease;
 }
 .compact-list-row:hover {
   border-color: var(--border-hover);

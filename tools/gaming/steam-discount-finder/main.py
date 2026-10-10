@@ -42,6 +42,7 @@ CONFIG_FILE = BASE_DIR / "config.json"
 CONFIG_EXAMPLE_FILE = BASE_DIR / "config.example.json"
 
 HISTORY_FILE = DATA_DIR / "history.json"
+HIST_LOWS_FILE = DATA_DIR / "historical_lows.json"
 APPINFO_CACHE_FILE = DATA_DIR / "appinfo_cache.json"
 OWNED_TXT_FILE = DATA_DIR / "owned.txt"
 OWNED_CACHE_FILE = DATA_DIR / "owned.json"
@@ -70,11 +71,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "min_reviews": 150,        # 最低评测篇数（过滤小样本刷分游戏）
     "min_raw_rate": 0.70,      # 原始好评率下限
     "min_quality": 0.80,       # 平滑后综合质量分 Q 下限
-    "max_price": 200.0,        # 折后价上限（元）
+    "max_price": 200.0,        # 常规折后价上限（元）
     "min_price": 5.0,          # 折后价下限（元）
     "min_discount": 35,        # 最低折扣百分比
     "deep_discount": 70,       # 深度折扣榜准入门槛（%）
     "chinese_only": True,      # 是否仅筛选支持简体中文的游戏
+    "itad_api_key": "",        # IsThereAnyDeal API Key (可选，配置后优先调用官方比价)
+    "masterpiece_min_rate": 0.88,      # 殿堂神作好评率下限 (88% 及以上)
+    "masterpiece_min_reviews": 3000,   # 殿堂神作最少评测数
+    "masterpiece_min_discount": 15,    # 殿堂神作最低折扣门槛 (神作只需 15% 即可破格准入)
+    "masterpiece_max_price": 398.0,    # 殿堂神作最高价格门槛 (覆盖 3A 大作正价折扣)
     "sorts": ["Reviews_Desc", "Released_DESC"],
     "pages_per_sort": 6,       # 每种排序扫描深度（100款/页）
     "page_size": 100,
@@ -315,14 +321,33 @@ def fetch_search_page(cfg: Dict[str, Any], sort: str, start: int) -> List[Dict[s
     return parse_results_html(page_html)
 
 
+def is_masterpiece_candidate(item: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
+    """判定是否具备殿堂级口碑（超高好评率+大量样本）且处于合理折扣与价格区间。"""
+    rate = item.get("raw_rate") or 0
+    reviews = item.get("reviews") or 0
+    discount = item.get("discount") or 0
+    final = item.get("final") or 0
+
+    high_rep = (
+        rate >= cfg.get("masterpiece_min_rate", 0.88)
+        and reviews >= cfg.get("masterpiece_min_reviews", 3000)
+    )
+    reasonable_deal = (
+        discount >= cfg.get("masterpiece_min_discount", 15)
+        and final <= cfg.get("masterpiece_max_price", 398.0)
+    )
+    return high_rep and reasonable_deal
+
+
 def quality_pass(item: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
-    """初筛过滤：检查折扣力度、价格区间、评测数下限与好评率门槛。"""
-    return (
+    """初筛过滤：检查常规门槛，或命中殿堂神作特权通道。"""
+    regular_pass = (
         item["discount"] >= cfg["min_discount"]
         and cfg["min_price"] <= item["final"] <= cfg["max_price"]
         and item["reviews"] >= cfg["min_reviews"]
         and (item["raw_rate"] or 0) >= cfg["min_raw_rate"]
     )
+    return regular_pass or is_masterpiece_candidate(item, cfg)
 
 
 def norm_name(s: str) -> str:
@@ -684,6 +709,82 @@ def history_flag(appid: int, price: float, hist: Dict[str, Any]) -> Tuple[str, O
     return "SAME", low_val, len(pts)
 
 
+def fetch_historical_lows_batch(appids: List[int], cfg: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    批量拉取 Steam 游戏的真实全周期历史最低价（基于免Key极速接口，并支持本地持久化缓存）。
+    """
+    cache: Dict[str, Any] = load_json(HIST_LOWS_FILE, {})
+    now = time.time()
+    needed = [
+        aid for aid in appids
+        if str(aid) not in cache or (now - float(cache[str(aid)].get("updated_at", 0))) > 86400 * 3
+    ]
+    if needed:
+        logger.info(f"      正在联网比对 {len(needed)} 款游戏的全网真实全历史最低价...")
+        batch_size = 50
+        for i in range(0, len(needed), batch_size):
+            chunk = needed[i:i + batch_size]
+            try:
+                payload = json.dumps({"country": "CN", "apps": chunk}).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://api.augmentedsteam.com/prices/v2",
+                    data=payload,
+                    headers={"User-Agent": UA, "Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
+                    prices_data = res.get("prices", {})
+                    for aid in chunk:
+                        app_data = prices_data.get(f"app/{aid}", {})
+                        lowest = app_data.get("lowest")
+                        if lowest and lowest.get("price"):
+                            cache[str(aid)] = {
+                                "hist_low_price": float(lowest["price"].get("amount", 0)),
+                                "hist_low_cut": int(lowest.get("cut", 0) or 0),
+                                "hist_low_date": (lowest.get("timestamp") or "")[:10],
+                                "updated_at": now,
+                            }
+            except Exception as e:
+                logger.debug(f"批次查询史低失败: {e}")
+            time.sleep(0.05)
+        save_json(HIST_LOWS_FILE, cache)
+    return cache
+
+
+def eval_hist_status(
+    item: Dict[str, Any],
+    hist_cache: Dict[str, Any],
+    local_hist: Dict[str, Any]
+) -> Tuple[str, Optional[float], Optional[int]]:
+    """
+    综合全网权威史低数据与本地观测记录判断：
+    返回: (status, hist_low_price, hist_low_cut)
+      status: "NEW_LOW" (🔥破史低), "TIED_LOW" (⚖️平史低), "DOWN" (降价), "SAME" (持平), "REGULAR" (常规)
+    """
+    aid = str(item["appid"])
+    curr_price = float(item["final"])
+    curr_cut = int(item.get("discount", 0))
+
+    if aid in hist_cache and hist_cache[aid].get("hist_low_price") is not None:
+        net_low = float(hist_cache[aid]["hist_low_price"])
+        net_cut = int(hist_cache[aid].get("hist_low_cut", 0))
+        if curr_price < net_low - 0.5:
+            return "NEW_LOW", net_low, net_cut
+        elif abs(curr_price - net_low) <= 0.8:
+            return "TIED_LOW", net_low, net_cut
+        else:
+            return "REGULAR", net_low, net_cut
+
+    local_flag, local_val, _ = history_flag(item["appid"], curr_price, local_hist)
+    if local_flag == "LOW":
+        return "NEW_LOW", local_val, curr_cut
+    elif local_flag == "SAME":
+        return "TIED_LOW", local_val, curr_cut
+    elif local_flag == "DOWN":
+        return "DOWN", local_val, curr_cut
+    return "REGULAR", local_val, None
+
+
 # ==================== 10. 报告生成与渲染 ====================
 CSS = """
 *{box-sizing:border-box}
@@ -712,7 +813,9 @@ tr:hover td{background:#fafbfc}
 .price{color:#dc2626;font-weight:700;font-size:16px;white-space:nowrap}
 .val b{color:#b45309;font-size:16px}
 .pct{background:#16a34a;color:#fff;border-radius:4px;padding:2px 6px;font-size:12px;font-weight:600}
-.tag{font-size:11px;padding:1px 6px;border-radius:4px;margin-left:6px}
+.tag{font-size:11px;padding:1px 6px;border-radius:4px;margin-left:6px;white-space:nowrap}
+.tag.new_low{background:#fee2e2;color:#b91c1c;font-weight:700;border:1px solid rgba(239,68,68,.3)}
+.tag.tied_low{background:#fef3c7;color:#92400e;font-weight:700;border:1px solid rgba(245,158,11,.3)}
 .tag.low{background:#fee2e2;color:#b91c1c}
 .tag.new{background:#e0f2fe;color:#0369a1}
 .tag.down{background:#fef3c7;color:#92400e}
@@ -738,19 +841,39 @@ details.have .pt{margin-left:6px;color:#9ca3af;font-size:11px}
 """
 
 
+def make_hist_badge(it: Dict[str, Any], hist: Dict[str, Any]) -> str:
+    """生成精准的史低与价格动态 HTML 徽章。"""
+    st = it.get("hist_status")
+    if st == "NEW_LOW":
+        return '<span class="tag new_low">🔥 破史低</span>'
+    elif st == "TIED_LOW":
+        return '<span class="tag tied_low">⚖️ 平史低</span>'
+    elif st == "DOWN":
+        return '<span class="tag down">降价</span>'
+    flag, _, _ = history_flag(it["appid"], it["final"], hist)
+    if flag == "LOW":
+        return '<span class="tag new_low">🔥 观测新低</span>'
+    elif flag == "NEW":
+        return '<span class="tag new">首次记录</span>'
+    elif flag == "DOWN":
+        return '<span class="tag down">降价</span>'
+    return '<span class="tag same">持平</span>'
+
+
 def rows_html(items: List[Dict[str, Any]], hist: Dict[str, Any], kind: str) -> str:
-    """生成榜单一、二的 HTML 表格行。"""
+    """生成各分类榜单的 HTML 表格行。"""
     out = []
     for i, it in enumerate(items, 1):
-        flag, _, _ = history_flag(it["appid"], it["final"], hist)
-        badge = {
-            "LOW": '<span class="tag low">观测新低</span>',
-            "NEW": '<span class="tag new">首次记录</span>',
-            "DOWN": '<span class="tag down">降价</span>',
-            "SAME": '<span class="tag same">持平</span>',
-        }[flag]
+        badge = make_hist_badge(it, hist)
         genres = " · ".join((it.get("info") or {}).get("genres", [])[:3]) if it.get("info") else ""
-        main_cell = f'<b>{it["value"]}</b>' if kind == "value" else f'<span class="pct">-{it["discount"]}%</span>'
+        if kind == "masterpiece":
+            main_cell = f'<span class="tag new_low" style="margin:0;font-size:12px;">🏆 神作特权</span>'
+        elif kind == "value":
+            main_cell = f'<b>{it["value"]}</b>'
+        else:
+            main_cell = f'<span class="pct">-{it["discount"]}%</span>'
+
+        hist_low_str = f"¥{it['hist_low_price']:.0f}" if it.get("hist_low_price") else "-"
         out.append(f"""
         <tr>
           <td class="rank">{i}</td>
@@ -764,6 +887,7 @@ def rows_html(items: List[Dict[str, Any]], hist: Dict[str, Any], kind: str) -> s
           </td>
           <td><div class="orig">¥{it['original']}</div><div class="pct2">-{it['discount']}%</div></td>
           <td class="price">¥{it['final']:.0f}</td>
+          <td>{hist_low_str}</td>
           <td>{int((it['raw_rate'] or 0) * 100)}%<div class="meta">Q {it['Q']:.2f}</div></td>
           <td>{it['hours']}h<div class="meta">¥{it['cost_per_hour']}/h</div></td>
           <td class="val">{main_cell}</td>
@@ -775,14 +899,9 @@ def full_rows_html(items: List[Dict[str, Any]], hist: Dict[str, Any]) -> str:
     """生成完整清单的 HTML 表格行（支持前端即时搜索与列排序）。"""
     out = []
     for i, it in enumerate(items, 1):
-        flag, _, _ = history_flag(it["appid"], it["final"], hist)
-        badge = {
-            "LOW": '<span class="tag low">观测新低</span>',
-            "NEW": '<span class="tag new">首次记录</span>',
-            "DOWN": '<span class="tag down">降价</span>',
-            "SAME": '<span class="tag same">持平</span>',
-        }[flag]
+        badge = make_hist_badge(it, hist)
         genres = " · ".join((it.get("info") or {}).get("genres", [])[:3]) if it.get("info") else ""
+        hist_low_val = it.get("hist_low_price") or it["final"]
         out.append(f"""
         <tr data-name="{html_mod.escape(it['name'].lower())}">
           <td class="rank">{i}</td>
@@ -793,6 +912,7 @@ def full_rows_html(items: List[Dict[str, Any]], hist: Dict[str, Any]) -> str:
           <td data-v="{it['original']}"><span class="orig">¥{it['original']}</span></td>
           <td data-v="{it['discount']}"><span class="pct2">-{it['discount']}%</span></td>
           <td data-v="{it['final']:.0f}" class="price">¥{it['final']:.0f}</td>
+          <td data-v="{hist_low_val:.0f}"><span class="orig">¥{hist_low_val:.0f}</span></td>
           <td data-v="{(it['raw_rate'] or 0)*100:.1f}">{int((it['raw_rate'] or 0) * 100)}%<div class="meta">{it['reviews']} 篇</div></td>
           <td data-v="{it['Q']:.3f}">{it['Q']:.2f}</td>
           <td data-v="{it['hours']}">{it['hours']}h</td>
@@ -804,6 +924,7 @@ def full_rows_html(items: List[Dict[str, Any]], hist: Dict[str, Any]) -> str:
 
 def render_html(
     cfg: Dict[str, Any],
+    top_masterpieces: List[Dict[str, Any]],
     top_value: List[Dict[str, Any]],
     top_discount: List[Dict[str, Any]],
     scored: List[Dict[str, Any]],
@@ -823,6 +944,15 @@ def render_html(
         if best
         else "本轮未检测到符合准入门槛的游戏。"
     )
+
+    mp_section = ""
+    if top_masterpieces:
+        mp_section = f"""
+<h2>🏆 榜一 · 殿堂神作 · 史低特权榜 (TOP {len(top_masterpieces)} · 平/破历史最低高口碑巨作)</h2>
+<div class="card"><table>
+<thead><tr><th></th><th>游戏</th><th>原价/折扣</th><th>现价</th><th>全网史低</th><th>好评/Q</th><th>时长</th><th>特权状态</th></tr></thead>
+<tbody>{rows_html(top_masterpieces, hist, "masterpiece")}</tbody></table></div>
+"""
 
     owned_box = ""
     if skipped:
@@ -845,14 +975,16 @@ def render_html(
 <div class="sub">{today} · 扫描 {scanned} 个折扣位 · {len(scored)} 款进入榜单{owned_note}</div>
 <div class="lead">{lead}</div>
 
-<h2>榜一 · 性价比之王 (TOP {len(top_value)})</h2>
+{mp_section}
+
+<h2>👑 榜二 · 性价比之王 (TOP {len(top_value)})</h2>
 <div class="card"><table>
-<thead><tr><th></th><th>游戏</th><th>原价/折扣</th><th>现价</th><th>好评/Q</th><th>时长</th><th>性价比</th></tr></thead>
+<thead><tr><th></th><th>游戏</th><th>原价/折扣</th><th>现价</th><th>全网史低</th><th>好评/Q</th><th>时长</th><th>性价比</th></tr></thead>
 <tbody>{rows_html(top_value, hist, "value")}</tbody></table></div>
 
-<h2>榜二 · 深度折扣 (TOP {len(top_discount)})</h2>
+<h2>⚡ 榜三 · 深度折扣 (TOP {len(top_discount)})</h2>
 <div class="card"><table>
-<thead><tr><th></th><th>游戏</th><th>原价/折扣</th><th>现价</th><th>好评</th><th>时长</th><th>折扣</th></tr></thead>
+<thead><tr><th></th><th>游戏</th><th>原价/折扣</th><th>现价</th><th>全网史低</th><th>好评</th><th>时长</th><th>折扣</th></tr></thead>
 <tbody>{rows_html(top_discount, hist, "discount")}</tbody></table></div>
 
 <h2>完整清单 · 全部 {len(scored)} 款（支持按列点击排序与名称过滤）</h2>
@@ -866,6 +998,7 @@ def render_html(
   <th class="sortable">原价</th>
   <th class="sortable">折扣</th>
   <th class="sortable">现价</th>
+  <th class="sortable">全网史低</th>
   <th class="sortable">好评率</th>
   <th class="sortable">Q分</th>
   <th class="sortable">时长</th>
@@ -921,6 +1054,7 @@ def render_html(
 
 def render_md(
     cfg: Dict[str, Any],
+    top_masterpieces: List[Dict[str, Any]],
     top_value: List[Dict[str, Any]],
     top_discount: List[Dict[str, Any]],
     scored: List[Dict[str, Any]],
@@ -937,21 +1071,42 @@ def render_md(
         f"扫描 {cfg['pages_per_sort'] * cfg['page_size'] * len(cfg['sorts'])} 个折扣位 · "
         f"{len(scored)} 款进榜 · 排除已拥有 {len(skipped)} 款{owned_line}",
         "",
-        "## 榜一 · 性价比之王",
+    ]
+
+    if top_masterpieces:
+        lines += [
+            "## 🏆 榜一 · 殿堂神作 · 史低特权榜",
+            "",
+            "| # | 游戏 | 原价→现价 | 折扣 | 全网史低 | 好评 | 时长 | 状态 |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for i, it in enumerate(top_masterpieces, 1):
+            st = it.get("hist_status")
+            st_text = "🔥破史低" if st == "NEW_LOW" else ("⚖️平史低" if st == "TIED_LOW" else "特权推荐")
+            low_str = f"¥{it['hist_low_price']:.0f}" if it.get("hist_low_price") else "-"
+            lines.append(
+                f"| {i} | [{it['name']}](https://store.steampowered.com/app/{it['appid']}/?cc=cn) | "
+                f"¥{it['original']}→¥{it['final']:.0f} | -{it['discount']}% | {low_str} | "
+                f"{int((it['raw_rate'] or 0)*100)}% ({it['reviews']}) | {it['hours']}h | {st_text} |"
+            )
+        lines.append("")
+
+    lines += [
+        "## 👑 榜二 · 性价比之王",
         "",
-        "| # | 游戏 | 原价→现价 | 折扣 | 好评 | 时长 | ¥/小时 | 性价比 | 历史 |",
+        "| # | 游戏 | 原价→现价 | 折扣 | 好评 | 时长 | ¥/小时 | 性价比 | 状态 |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for i, it in enumerate(top_value, 1):
-        flag, _, _ = history_flag(it["appid"], it["final"], hist)
-        badge = {"LOW": "🔥新低", "NEW": "🆕首次", "DOWN": "⬇降价", "SAME": "—"}[flag]
+        st = it.get("hist_status")
+        badge = "🔥破史低" if st == "NEW_LOW" else ("⚖️平史低" if st == "TIED_LOW" else "—")
         lines.append(
             f"| {i} | [{it['name']}](https://store.steampowered.com/app/{it['appid']}/?cc=cn) | "
             f"¥{it['original']}→¥{it['final']:.0f} | -{it['discount']}% | {int((it['raw_rate'] or 0)*100)}% "
             f"({it['reviews']}) | {it['hours']}h | ¥{it['cost_per_hour']} | **{it['value']}** | {badge} |"
         )
 
-    lines += ["", "## 榜二 · 深度折扣 TOP", "", "| # | 游戏 | 原价→现价 | 折扣 | 好评 | ¥/小时 |", "|---|---|---|---|---|---|"]
+    lines += ["", "## ⚡ 榜三 · 深度折扣 TOP", "", "| # | 游戏 | 原价→现价 | 折扣 | 好评 | ¥/小时 |", "|---|---|---|---|---|---|"]
     for i, it in enumerate(top_discount, 1):
         lines.append(
             f"| {i} | [{it['name']}](https://store.steampowered.com/app/{it['appid']}/?cc=cn) | "
@@ -1038,24 +1193,52 @@ def main() -> None:
     logger.info("[3/6] 抓取 Steam 游戏详情（类型/媒体分/成就）...")
     enrich(deep)
 
-    # 4. 计算综合性价比
-    logger.info("[4/6] 计算综合性价比 Q, H, V...")
-    scored = [score(c) for c in deep]
-    scored = [s for s in scored if s["Q"] >= cfg["min_quality"]]
-    scored.sort(key=lambda x: -x["value"])
-    top_value = scored[: cfg["top_n"]]
+    # 4. 联网比对全网真实史低与计算综合性价比
+    logger.info("[4/6] 联网比对全网真实历史最低价并精算性价比...")
+    hist_cache = fetch_historical_lows_batch([c["appid"] for c in deep], cfg)
 
-    seen_ids = {s["appid"] for s in top_value}
+    scored = []
+    for c in deep:
+        sc = score(c)
+        h_status, h_price, h_cut = eval_hist_status(sc, hist_cache, {})
+        sc["hist_status"] = h_status
+        sc["hist_low_price"] = h_price
+        sc["hist_low_cut"] = h_cut
+        sc["is_masterpiece"] = is_masterpiece_candidate(sc, cfg)
+        scored.append(sc)
+
+    # 殿堂神作·平/破史低榜 (Masterpieces)
+    mp_list = [s for s in scored if s.get("is_masterpiece")]
+    rank_order = {"NEW_LOW": 0, "TIED_LOW": 1, "DOWN": 2, "REGULAR": 3}
+    mp_list.sort(key=lambda s: (rank_order.get(s.get("hist_status", "REGULAR"), 3), -(s["reviews"] * (s["raw_rate"] or 0))))
+    top_masterpieces = mp_list[: cfg["top_n"]]
+
+    # 性价比之王榜单
+    val_scored = [s for s in scored if s["Q"] >= cfg["min_quality"]]
+    val_scored.sort(key=lambda x: -x["value"])
+    top_value = val_scored[: cfg["top_n"]]
+
+    # 深度折扣榜单
+    seen_ids = {s["appid"] for s in top_value} | {s["appid"] for s in top_masterpieces}
     dd = [s for s in scored if s["discount"] >= cfg["deep_discount"] and s["appid"] not in seen_ids]
     if len(dd) < 5:
         dd = [s for s in scored if s["appid"] not in seen_ids and s["discount"] >= cfg["min_discount"]]
     dd.sort(key=lambda x: -x["value"])
     top_discount = dd[: cfg["top_n"]]
-    logger.info(f"      完成精算评分，进榜候选 {len(scored)} 款")
+    logger.info(f"      完成精算评分，进榜候选 {len(scored)} 款（殿堂神作 {len(top_masterpieces)} 款）")
 
     # 5. 更新本地价格沉淀
     logger.info("[5/6] 更新本地历史价格数据...")
     hist = update_history(scored + skipped)
+
+    # 补充本地观测对比
+    for s in scored:
+        if s.get("hist_status") == "REGULAR":
+            local_flag, local_val, _ = history_flag(s["appid"], s["final"], hist)
+            if local_flag == "LOW":
+                s["hist_status"] = "NEW_LOW"
+            elif local_flag == "SAME":
+                s["hist_status"] = "TIED_LOW"
 
     # 6. 生成输出物
     logger.info("[6/6] 生成 Markdown, HTML 与 JSON 输出产物...")
@@ -1065,8 +1248,8 @@ def main() -> None:
     p_latest_html = OUTPUT_DIR / "latest.html"
     p_latest_json = OUTPUT_DIR / "deals-latest.json"
 
-    md_content = render_md(cfg, top_value, top_discount, scored, hist, skipped, owned_meta)
-    html_content = render_html(cfg, top_value, top_discount, scored, hist, skipped, scanned, owned_meta)
+    md_content = render_md(cfg, top_masterpieces, top_value, top_discount, scored, hist, skipped, owned_meta)
+    html_content = render_html(cfg, top_masterpieces, top_value, top_discount, scored, hist, skipped, scanned, owned_meta)
 
     # 输出结构化 JSON 产物，极大便利 AI 进一步处理
     json_output_payload = {
@@ -1074,6 +1257,7 @@ def main() -> None:
         "scanned_deals_count": scanned,
         "qualified_games_count": len(scored),
         "excluded_owned_count": len(skipped),
+        "top_masterpieces": top_masterpieces,
         "top_value": top_value,
         "top_discount": top_discount,
         "all_ranked": scored,

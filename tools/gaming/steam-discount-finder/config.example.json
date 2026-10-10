@@ -3,5 +3,11 @@
   "steam_api_key": "",
   "steam_id": "",
   "vanity": "",
-  "owned_extra": []
+  "owned_extra": [],
+  "itad_api_key": "",
+  "masterpiece_min_rate": 0.88,
+  "masterpiece_min_reviews": 3000,
+  "masterpiece_min_discount": 15,
+  "masterpiece_max_price": 398.0
 }
+
